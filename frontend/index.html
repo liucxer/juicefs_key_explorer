@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TiKV Key 扫描与解析工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+        
+        .form-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        
+        .btn-primary {
+            background-color: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #2980b9;
+        }
+        
+        .btn-secondary {
+            background-color: #95a5a6;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #7f8c8d;
+        }
+        
+        .filter-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 200px;
+        }
+        
+        .table-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .status-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status-info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(52, 152, 219, 0.3);
+            border-radius: 50%;
+            border-top-color: #3498db;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .details {
+            margin-top: 5px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .details pre {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TiKV Key 扫描与解析工具</h1>
+        
+        <!-- 表单容器 -->
+        <div class="form-container">
+            <h2>连接配置</h2>
+            <div class="form-group">
+                <label for="pdAddr">PD 地址</label>
+                <input type="text" id="pdAddr" placeholder="例如: 192.168.210.210:2379" value="192.168.210.210:2379">
+            </div>
+            <div class="form-group">
+                <label for="caPath">CA 证书路径 (可选)</label>
+                <input type="text" id="caPath" placeholder="例如: /path/to/ca.crt">
+            </div>
+            <div class="form-group">
+                <label for="certPath">客户端证书路径 (可选)</label>
+                <input type="text" id="certPath" placeholder="例如: /path/to/client.crt">
+            </div>
+            <div class="form-group">
+                <label for="keyPath">客户端密钥路径 (可选)</label>
+                <input type="text" id="keyPath" placeholder="例如: /path/to/client.key">
+            </div>
+            <div class="button-group">
+                <button class="btn-primary" onclick="scanTiKV()">开始扫描</button>
+                <button class="btn-secondary" onclick="clearResults()">清空结果</button>
+            </div>
+        </div>
+        
+        <!-- 筛选容器 -->
+        <div class="filter-container">
+            <h2>筛选条件</h2>
+            <div class="form-group">
+                <label for="typeFilter">数据类型</label>
+                <select id="typeFilter" onchange="applyFilter()">
+                    <option value="">全部类型</option>
+                    <option value="A">A (Inode 相关)</option>
+                    <option value="C">C (计数器)</option>
+                    <option value="S">S (会话相关)</option>
+                    <option value="SE">SE (会话过期时间)</option>
+                    <option value="SI">SI (会话信息)</option>
+                    <option value="SH">SH (会话心跳)</option>
+                    <option value="SS">SS (持续 inode)</option>
+                    <option value="Config">Config (配置)</option>
+                    <option value="FileSystem">FileSystem (文件系统)</option>
+                    <option value="Unknown">Unknown (未知)</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- 状态信息 -->
+        <div id="status" class="status" style="display: none;"></div>
+        
+        <!-- 表格容器 -->
+        <div class="table-container">
+            <h2>扫描结果</h2>
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>类型</th>
+                        <th>Key</th>
+                        <th>Value</th>
+                        <th>详细信息</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                    <tr>
+                        <td colspan="4" style="text-align: center; padding: 20px;">请点击"开始扫描"按钮开始扫描 TiKV</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        let allResults = [];
+        
+        // 扫描 TiKV
+        function scanTiKV() {
+            const pdAddr = document.getElementById('pdAddr').value;
+            const caPath = document.getElementById('caPath').value;
+            const certPath = document.getElementById('certPath').value;
+            const keyPath = document.getElementById('keyPath').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            
+            if (!pdAddr) {
+                showStatus('请输入 PD 地址', 'error');
+                return;
+            }
+            
+            showStatus('正在扫描 TiKV... <div class="loading"></div>', 'info');
+            
+            // 发送请求到后端 API
+            fetch('http://localhost:8080/api/scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    pdAddr: pdAddr,
+                    caPath: caPath,
+                    certPath: certPath,
+                    keyPath: keyPath,
+                    typeFilter: typeFilter
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('扫描失败: ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    showStatus('扫描失败: ' + data.error, 'error');
+                    return;
+                }
+                
+                allResults = data.results;
+                displayResults(allResults);
+                showStatus(`扫描完成，共找到 ${data.count} 个键值对`, 'success');
+            })
+            .catch(error => {
+                showStatus('扫描失败: ' + error.message, 'error');
+            });
+        }
+        
+        // 显示状态信息
+        function showStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            statusElement.innerHTML = message;
+            statusElement.className = `status status-${type}`;
+            statusElement.style.display = 'block';
+        }
+        
+        // 清空结果
+        function clearResults() {
+            allResults = [];
+            const resultsBody = document.getElementById('resultsBody');
+            resultsBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">请点击"开始扫描"按钮开始扫描 TiKV</td></tr>';
+            showStatus('', 'info');
+            document.getElementById('status').style.display = 'none';
+        }
+        
+        // 应用筛选
+        function applyFilter() {
+            const typeFilter = document.getElementById('typeFilter').value;
+            if (typeFilter) {
+                const filteredResults = allResults.filter(result => result.keyInfo.type === typeFilter);
+                displayResults(filteredResults);
+            } else {
+                displayResults(allResults);
+            }
+        }
+        
+        // 显示结果
+        function displayResults(results) {
+            const resultsBody = document.getElementById('resultsBody');
+            
+            if (results.length === 0) {
+                resultsBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">没有找到匹配的结果</td></tr>';
+                return;
+            }
+            
+            let html = '';
+            results.forEach((result, index) => {
+                html += `
+                    <tr>
+                        <td>${result.keyInfo.type}</td>
+                        <td style="word-break: break-all;">${result.key}</td>
+                        <td style="word-break: break-all;">${formatValue(result.valueInfo.value)}</td>
+                        <td>
+                            <div class="details">
+                                <strong>描述:</strong> ${result.keyInfo.description}<br>
+                                ${result.keyInfo.subType ? `<strong>子类型:</strong> ${result.keyInfo.subType}<br>` : ''}
+                                ${result.keyInfo.uuid ? `<strong>UUID:</strong> ${result.keyInfo.uuid}<br>` : ''}
+                                ${Object.keys(result.keyInfo.details).length > 0 ? '<strong>Key 详情:</strong><pre>' + JSON.stringify(result.keyInfo.details, null, 2) + '</pre>' : ''}
+                                ${Object.keys(result.valueInfo.details).length > 0 ? '<strong>Value 详情:</strong><pre>' + JSON.stringify(result.valueInfo.details, null, 2) + '</pre>' : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            resultsBody.innerHTML = html;
+        }
+        
+        // 格式化值
+        function formatValue(value) {
+            if (typeof value === 'string' && value.length > 100) {
+                return value.substring(0, 100) + '...';
+            }
+            return value;
+        }
+    </script>
+</body>
+</html>
