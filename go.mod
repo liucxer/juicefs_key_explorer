@@ -1,4 +1,4 @@
-module kv-decoder
+module tikv-scanner-backend
 
 go 1.23.3
 
