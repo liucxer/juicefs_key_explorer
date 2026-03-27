@@ -1,4 +1,4 @@
-module tikv-scanner-backend
+module juicefs_key_explorer
 
 go 1.23.3
 
